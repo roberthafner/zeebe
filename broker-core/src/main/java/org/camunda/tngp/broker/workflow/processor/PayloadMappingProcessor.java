@@ -1,12 +1,7 @@
 package org.camunda.tngp.broker.workflow.processor;
 
-import java.util.ArrayDeque;
-import java.util.Arrays;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.agrona.DirectBuffer;
 import org.agrona.MutableDirectBuffer;
@@ -30,14 +25,21 @@ import org.camunda.tngp.util.buffer.BufferUtil;
  * {@link #extractPayload(Mapping[], DirectBuffer)}.
  * The first one merges two buffers with the help of the given mapping into one. The second method extract
  * content of the given buffer with help of the given mapping and writes the result into a buffer.
+ * The result is stored into a buffer, which is available via {@link #getResultBuffer()}.
  */
 public class PayloadMappingProcessor
 {
     /**
-     * Nodes of type {@link #TYPE_NODE} represents usal nodes which have
+     * The maximum JSON key length.
+     */
+    public static final int MAX_JSON_KEY_LEN = 128;
+
+    /**
+     * Nodes of type {@link #TYPE_MAP_NODE} represents usal nodes, which have
      * child nodes.
      */
-    private static final short TYPE_NODE = 1;
+    private static final short TYPE_MAP_NODE = 1;
+    private static final short TYPE_ARRAY_NODE = 2;
 
     /**
      * Nodes of type {@link #TYPE_EXTRACT_LEAF} represents leafs
@@ -47,7 +49,7 @@ public class PayloadMappingProcessor
     private static final short TYPE_EXTRACT_LEAF = 10;
 
     /**
-     * Nodes of type {@link #TYPE_MERGE_LEAF} represents leafs from the mergeing payload.
+     * Nodes of type {@link #TYPE_MERGE_LEAF} represents leafs from the merging payload.
      * So these leafs can be found in the payload in which the payloads
      * should be merged.
      */
@@ -57,11 +59,6 @@ public class PayloadMappingProcessor
      * The json path separator to split the json path in single tokens.
      */
     private static final String JSON_PATH_SEPARATOR = "\\.";
-
-    /**
-     * Represents the value if the json path expression does not match any value.
-     */
-    private static final int NO_MATCHING_VALUE = -1;
 
     // internal data structure
     protected final Map<String, Short> nodeTypeMap; //Bytes2LongHashIndex nodeTypeMap;
@@ -115,7 +112,6 @@ public class PayloadMappingProcessor
         return extractPayload(mappings, sourcePayload);
     }
 
-    protected static final byte ZERO_BYTE = 0;
     /**
      *
      * This method will extract, with help of the given mappings, a payload from the given payload.
@@ -138,38 +134,6 @@ public class PayloadMappingProcessor
     }
 
     /**
-     * Processes the mapping after the mappings a preprocessed and
-     * the internal data structure is constructed.
-     *
-     * If the root path is a LEAF it will end in the {@link PayloadMappingProcessor#processLeafMapping(String, Short)}}
-     * and writes directly the mapping for the root path.
-     *
-     * If the root is a NODE, which means it has at least one child it will process the corresponding child nodes
-     * and resolved the mapping.
-     */
-    private void processMapping()
-    {
-        final int depth = 0;
-        final String startNode = Mapping.JSON_ROOT_PATH;
-        final String concat = depth + startNode;
-        msgPackWriter.wrap(resultingBuffer, 0);
-        final Short nodeType = nodeTypeMap.get(concat);
-        if (nodeType == TYPE_NODE)
-        {
-            final Set<String> childs = nodeChildsMap.get(concat);
-            msgPackWriter.writeMapHeader(childs.size());
-            for (String child : childs)
-            {
-                processMapping(depth + 1, child);
-            }
-        }
-        else
-        {
-            processLeafMapping(concat, nodeType);
-        }
-    }
-
-    /**
      * The result buffer which contains the message pack after processing the mappings.
      *
      * @return the result buffer
@@ -180,71 +144,9 @@ public class PayloadMappingProcessor
     }
 
     /**
-     * Recursive method to process the mapping.
-     * The mapping will start with depth = 0 and `$` as nodeName, which represents the root.
-     * The depth and the nodeName is equal to the node identifier.
-     * With help of the interal data structure it can be determined if the current node
-     * is of type NODE or LEAF. If the node is of type NODE the map header will be writen
-     * with the size of existing childs. After that the childs are recursivly processed.
-     *
-     * If the node is of type LEAF the leaf mapping will be resolved and written to the result buffer.
-     *
-     * @param depth the current depth of the node
-     * @param nodeName the name of the node
-     */
-    private void processMapping(int depth, String nodeName)
-    {
-        final String nodeId = depth + nodeName;
-        // write key
-        this.nodeName.wrap(nodeName.getBytes());
-        msgPackWriter.writeString(this.nodeName);
-        final Short nodeType = nodeTypeMap.get(nodeId);
-        if (nodeType == TYPE_NODE)
-        {
-            final Set<String> childs = nodeChildsMap.get(nodeId);
-            msgPackWriter.writeMapHeader(childs.size());
-            for (String child : childs)
-            {
-                processMapping(depth + 1, child);
-            }
-        }
-        else
-        {
-            processLeafMapping(nodeId, nodeType);
-        }
-    }
-
-    /**
-     * Process the leaf mapping.
-     * Writes from the payload to the result buffer.
-     *
-     * @param leafId the identifier of the leaf
-     * @param nodeType the type of the leaf
-     */
-    private void processLeafMapping(String leafId, Short nodeType)
-    {
-        final long mapping = leafMap.get(leafId);
-        if (mapping == NO_MATCHING_VALUE)
-        {
-            msgPackWriter.writeNil();
-        }
-        else
-        {
-            final int position = (int) (mapping >> 32);
-            final int length = (int) mapping;
-            DirectBuffer relatedBuffer = extractingPayload;
-            if (nodeType == TYPE_MERGE_LEAF)
-            {
-                relatedBuffer = mergingPayload;
-            }
-            msgPackWriter.writeRaw(relatedBuffer, position, length);
-        }
-    }
-
-    /**
      * Pre-process the given mappings. Traverse for each mapping the target path
      * and constructs a tree-like structure, which is located in
-     * {@link #nodeChildsMap}, {@link #nodeTypeMap}, {@link #leafMap}.
+     * {@link #nodeChildsMap}, {@link #nodeTypeMap} and {@link #leafMap}.
      * The constructed structure is used by the {@link #extractPayload(Mapping[], DirectBuffer)} to
      * write the message pack in the right way.
      *
@@ -254,41 +156,63 @@ public class PayloadMappingProcessor
     {
         for (Mapping mapping : mappings)
         {
-            final String targetQueryString = mapping.getTargetQueryString();
-            final String targetPath[] = targetQueryString.split(JSON_PATH_SEPARATOR);
+            final String targetPath[] = mapping.getTargetQueryString().split(JSON_PATH_SEPARATOR);
 
             String parent = null;
             for (int i = 0; i < targetPath.length; i++)
             {
-                final short type; // = (i + 1 == targetPath.length) ? 0 : 1;
-                final String currentPath = targetPath[i];
-                final String nodeId = (i + currentPath);
-                if ((i + 1 == targetPath.length))
+                final short type;
+                String currentPath = targetPath[i];
+                final String nodeId;
+                int indexOfOpeningBracket = currentPath.indexOf('[');
+                if (indexOfOpeningBracket != -1)
                 {
-                    // leaf
-                    type = TYPE_EXTRACT_LEAF;
+                    parent = currentPath.substring(0, indexOfOpeningBracket);
+                    final String parentId = i + parent;
+                    currentPath = currentPath.replace("[", "").replace("]", "");
+                    nodeId = (i+1) + currentPath;
+
+                    if (i != 0)
+                    {
+                        if (nodeChildsMap.get(parentId) == null)
+                        {
+                            nodeChildsMap.put(parentId, new LinkedHashSet<>());
+                        }
+                        nodeChildsMap.get(parentId).add(currentPath);
+                    }
+                    nodeTypeMap.put(nodeId, TYPE_EXTRACT_LEAF);
                     final JsonPathQuery sourceQuery = mapping.getSource();
                     final long leafMapping = executeJsonPathQuery(sourceQuery);
                     leafMap.put(nodeId, leafMapping);
+                    nodeTypeMap.put(parentId, TYPE_ARRAY_NODE);
                 }
                 else
                 {
-                    // node
-                    type = TYPE_NODE;
-                    // add node if not exist
-                    if (nodeChildsMap.get(nodeId) == null)
+                    nodeId = (i + currentPath);
+                    if ((i + 1 == targetPath.length))
                     {
-                        nodeChildsMap.put(nodeId, new HashSet<>());
+                        type = TYPE_EXTRACT_LEAF;
+                        final JsonPathQuery sourceQuery = mapping.getSource();
+                        final long leafMapping = executeJsonPathQuery(sourceQuery);
+                        leafMap.put(nodeId, leafMapping);
                     }
-                }
+                    else
+                    {
+                        type = TYPE_MAP_NODE;
+                        if (nodeChildsMap.get(nodeId) == null)
+                        {
+                            nodeChildsMap.put(nodeId, new HashSet<>());
+                        }
+                    }
 
-                if (i != 0)
-                {
-                    nodeChildsMap.get(((i - 1) + parent)).add(currentPath);
-                }
-                nodeTypeMap.put(nodeId, type);
+                    if (i != 0)
+                    {
+                        nodeChildsMap.get(((i - 1) + parent)).add(currentPath);
+                    }
+                    nodeTypeMap.put(nodeId, type);
 
-                parent = currentPath;
+                    parent = currentPath;
+                }
             }
         }
     }
@@ -326,6 +250,91 @@ public class PayloadMappingProcessor
         return queryResult;
     }
 
+    /**
+     * Processes the mapping after the mappings a preprocessed and
+     * the internal data structure is constructed.
+     *
+     * If the root path is a LEAF it will end in the {@link PayloadMappingProcessor#processLeafMapping(String, Short)}}
+     * and writes directly the mapping for the root path.
+     *
+     * If the root is a NODE, which means it has at least one child it will process the corresponding child nodes
+     * and resolved the mapping.
+     */
+    private void processMapping()
+    {
+        final int depth = 0;
+        final String startNode = Mapping.JSON_ROOT_PATH;
+        msgPackWriter.wrap(resultingBuffer, 0);
+
+        processMapping(depth, startNode, false);
+    }
+
+    /**
+     * Recursive method to process the mapping.
+     * The mapping will start with depth = 0 and `$` as nodeName, which represents the root.
+     * The depth and the nodeName is equal to the node identifier.
+     * With help of the interal data structure it can be determined if the current node
+     * is of type NODE or LEAF. If the node is of type NODE the map header will be writen
+     * with the size of existing childs. After that the childs are recursivly processed.
+     *
+     * If the node is of type LEAF the leaf mapping will be resolved and written to the result buffer.
+     *
+     * @param depth the current depth of the node
+     * @param nodeName the name of the node
+     */
+    private void processMapping(int depth, String nodeName, boolean isArray)
+    {
+        if (depth != 0 && !isArray)
+        {
+            this.nodeName.wrap(nodeName.getBytes());
+            msgPackWriter.writeString(this.nodeName);
+        }
+
+        final String nodeId = depth + nodeName;
+        final Short nodeType = nodeTypeMap.get(nodeId);
+        if (nodeType == TYPE_MAP_NODE)
+        {
+            final Set<String> childs = nodeChildsMap.get(nodeId);
+            msgPackWriter.writeMapHeader(childs.size());
+            for (String child : childs)
+            {
+                processMapping(depth + 1, child, false);
+            }
+        }
+        else if (nodeType == TYPE_ARRAY_NODE)
+        {
+            final Set<String> childs = nodeChildsMap.get(nodeId);
+            msgPackWriter.writeArrayHeader(childs.size());
+            for (String child : childs)
+            {
+                processMapping(depth + 1, child, true);
+            }
+        }
+        else
+        {
+            processLeafMapping(nodeId, nodeType);
+        }
+    }
+
+    /**
+     * Process the leaf mapping.
+     * Writes from the payload to the result buffer.
+     *
+     * @param leafId the identifier of the leaf
+     * @param nodeType the type of the leaf
+     */
+    private void processLeafMapping(String leafId, Short nodeType)
+    {
+        final long mapping = leafMap.get(leafId);
+        final int position = (int) (mapping >> 32);
+        final int length = (int) mapping;
+        DirectBuffer relatedBuffer = extractingPayload;
+        if (nodeType == TYPE_MERGE_LEAF)
+        {
+            relatedBuffer = mergingPayload;
+        }
+        msgPackWriter.writeRaw(relatedBuffer, position, length);
+    }
 
     /**
      * Tidy up the internal data structure.
@@ -362,7 +371,7 @@ public class PayloadMappingProcessor
          * The last key for the node, since
          * the node is divided in separate MsgPackTokens.
          */
-        protected final byte lastKey[] = new byte[1024];
+        protected final byte lastKey[] = new byte[MAX_JSON_KEY_LEN];
 
         /**
          * The length of the last key.
@@ -386,6 +395,10 @@ public class PayloadMappingProcessor
          */
         private Deque<Integer> childDepthCount = new ArrayDeque<>();
 
+        protected boolean isArrayValue = false;
+        protected final AtomicLong arraySize = new AtomicLong();
+        protected final AtomicLong currentIndex = new AtomicLong();
+
         protected PayloadMergePreprocessor(Map<String, Short> nodeTypeMap, Map<String, Set<String>> nodeChildsMap, Map<String, Long> leafMap)
         {
             this.nodeTypeMap = nodeTypeMap;
@@ -398,32 +411,6 @@ public class PayloadMappingProcessor
             childDepthCount.push(0);
         }
 
-        /**
-         * Clears the preprocessor and resets to the inital state.
-         */
-        public void clear()
-        {
-            lastKey[0] = '$';
-            lastKeyLen = 1;
-            nextIsValue = true;
-            childDepthCount.push(0);
-
-            parentsStack.clear();
-        }
-
-        /**
-         * Returns the node name.
-         * @param bytes the bytes which contains the name
-         * @param length the length of the name
-         * @return the name as string
-         */
-        private String getNodeName(byte[] bytes, int length)
-        {
-            final byte nameBytes[] = Arrays.copyOf(bytes, length);
-            return new String(nameBytes);
-        }
-
-
         @Override
         public void visitElement(int position, MsgPackToken currentValue)
         {
@@ -431,6 +418,10 @@ public class PayloadMappingProcessor
             if (currentValueType == MsgPackType.MAP)
             {
                 processObjectNode(currentValue);
+            }
+            else if (currentValueType == MsgPackType.ARRAY)
+            {
+                processArrayNode(currentValue);
             }
             else if (currentValueType == MsgPackType.STRING && !nextIsValue)
             {
@@ -445,11 +436,36 @@ public class PayloadMappingProcessor
             }
         }
 
+        private void processArrayNode(MsgPackToken currentValue)
+        {
+            // set size of array as atomic long
+            final String nodeName = getNodeName(lastKey, lastKeyLen);
+            final int depth = childDepthCount.pop();
+            final String nodeId = depth + nodeName;
+            nodeTypeMap.put(nodeId, TYPE_ARRAY_NODE);
+            nodeChildsMap.put(nodeId, new LinkedHashSet<>());
+
+            if (!parentsStack.isEmpty())
+            {
+                final String parentId = parentsStack.pop();
+                nodeChildsMap.get(parentId).add(nodeName);
+            }
+
+            arraySize.set(currentValue.getSize());
+            currentIndex.set(0);
+            for (int i = 0; i < currentValue.getSize(); i++)
+            {
+                parentsStack.push(nodeId);
+                childDepthCount.push(depth + 1);
+            }
+            // no keys in arrays
+            nextIsValue = true;
+            isArrayValue = true;
+        }
+
         /**
          * The current node is a simple value and the currentValue reference to a token
          * of another type except MAP.
-         *
-         * TODO should be tested for arrays and int's
          *
          * This method process the value node and inserts the node properties into the
          * internal data structure. It will add the nodeType ( type = leaf), pops a
@@ -462,7 +478,23 @@ public class PayloadMappingProcessor
          */
         private void processValueNode(long position, MsgPackToken currentValue)
         {
-            final String nodeName = getNodeName(lastKey, lastKeyLen);
+            final String nodeName;
+            if (isArrayValue)
+            {
+                final long index = currentIndex.getAndIncrement();
+                nodeName = getNodeName(lastKey, lastKeyLen) + index;
+                if (index >= arraySize.get() - 1)
+                {
+                    isArrayValue = false;
+                    nextIsValue = false;
+                }
+            }
+            else
+            {
+                nodeName = getNodeName(lastKey, lastKeyLen);
+                nextIsValue = false;
+            }
+
             final int depth = childDepthCount.pop();
             final String nodeId = depth + nodeName;
             nodeTypeMap.put(nodeId, TYPE_MERGE_LEAF);
@@ -473,7 +505,6 @@ public class PayloadMappingProcessor
             final long mapping = (position << 32)
                 | (currentValue.getTotalLength());
             leafMap.put(nodeId, mapping);
-            nextIsValue = false;
         }
 
         /**
@@ -499,7 +530,7 @@ public class PayloadMappingProcessor
             final String nodeName = getNodeName(lastKey, lastKeyLen);
             final int depth = childDepthCount.pop();
             final String nodeId = depth + nodeName;
-            nodeTypeMap.put(nodeId, TYPE_NODE);
+            nodeTypeMap.put(nodeId, TYPE_MAP_NODE);
             nodeChildsMap.put(nodeId, new HashSet<>());
 
             if (!parentsStack.isEmpty())
@@ -514,6 +545,31 @@ public class PayloadMappingProcessor
                 childDepthCount.push(depth + 1);
             }
             nextIsValue = false;
+        }
+
+        /**
+         * Clears the preprocessor and resets to the inital state.
+         */
+        public void clear()
+        {
+            lastKey[0] = '$';
+            lastKeyLen = 1;
+            nextIsValue = true;
+            childDepthCount.push(0);
+
+            parentsStack.clear();
+        }
+
+        /**
+         * Returns the node name.
+         * @param bytes the bytes which contains the name
+         * @param length the length of the name
+         * @return the name as string
+         */
+        private String getNodeName(byte[] bytes, int length)
+        {
+            final byte nameBytes[] = Arrays.copyOf(bytes, length);
+            return new String(nameBytes);
         }
     }
 }
