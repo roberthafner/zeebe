@@ -329,6 +329,41 @@ public class WorkflowTaskIOMappingTest
     }
 
     @Test
+    public void shouldExtractValueFromObjectFromJsonArrayViaInputMapping() throws Throwable
+    {
+        // given
+        final Map<String, Object> jsonObject = new HashMap<>();
+        jsonObject.put(NODE_TEST_ATTR_KEY, NODE_TEST_ATTR_VALUE);
+        final Object[] array = {jsonObject};
+
+        final Map<String, Object> rootObj = new HashMap<>();
+        rootObj.put(NODE_ARRAY_KEY, array);
+        final byte[] bytes = objectMapper.writeValueAsBytes(rootObj);
+
+        testClient.deploy(wrap(
+            Bpmn.createExecutableProcess("process")
+                .startEvent()
+                .serviceTask("service")
+                .endEvent()
+                .done())
+            .taskDefinition("service", "external", 5)
+            .ioMapping("service")
+                .input(NODE_ARRAY_FIRST_IDX_PATH + "." + NODE_TEST_ATTR_KEY, "$.testValue")
+            .done());
+
+        // when
+        testClient.createWorkflowInstance("process", bytes);
+        final SubscribedEvent event = testClient.receiveSingleEvent(taskEvents("CREATE"));
+
+        // then payload is expected as
+        final JsonNode jsonNode = objectMapper.readTree((byte[]) event.event().get(PROP_TASK_PAYLOAD));
+
+        final JsonNode testValueNode = jsonNode.get("testValue");
+        assertThat(testValueNode.isTextual()).isTrue();
+        assertThat(testValueNode.textValue()).isEqualTo(NODE_TEST_ATTR_VALUE);
+    }
+
+    @Test
     public void shouldCreateTwoNewObjectsViaInputMapping() throws Throwable
     {
         // given
@@ -767,6 +802,50 @@ public class WorkflowTaskIOMappingTest
     }
 
     @Test
+    public void shouldUseOutputMappingToExtractObjectFromJsonArrayToWorkflowPayload() throws Throwable
+    {
+        // given
+        final Map<String, Object> jsonObject = new HashMap<>();
+        jsonObject.put(NODE_TEST_ATTR_KEY, NODE_TEST_ATTR_VALUE);
+        final Object[] array = {jsonObject};
+
+        final Map<String, Object> rootObj = new HashMap<>();
+        rootObj.put(NODE_ARRAY_KEY, array);
+        final byte[] bytes = objectMapper.writeValueAsBytes(rootObj);
+
+        testClient.deploy(wrap(
+            Bpmn.createExecutableProcess("process")
+                .startEvent()
+                .serviceTask("service")
+                .endEvent()
+                .done())
+            .taskDefinition("service", "external", 5)
+            .ioMapping("service")
+                .output(NODE_ARRAY_FIRST_IDX_PATH + "." + NODE_TEST_ATTR_KEY, "$.testValue")
+            .done());
+        testClient.createWorkflowInstance("process", bytes);
+
+        // when
+        testClient.completeTaskOfType("external", bytes);
+        final SubscribedEvent activityCompletedEvent = testClient.receiveSingleEvent(workflowInstanceEvents("ACTIVITY_COMPLETED"));
+
+        // then payload contains old objects
+        final JsonNode jsonNode = objectMapper.readTree((byte[]) activityCompletedEvent.event().get(PROP_TASK_PAYLOAD));
+
+        final JsonNode arrayNode = jsonNode.get(NODE_ARRAY_KEY);
+        assertThat(arrayNode.isArray()).isTrue();
+
+        final JsonNode arrayObjectNode = arrayNode.get(0);
+        assertThat(arrayObjectNode.isObject()).isTrue();
+        assertThat(arrayObjectNode.get(NODE_TEST_ATTR_KEY).textValue()).isEqualTo(NODE_TEST_ATTR_VALUE);
+
+        // and the new one
+        final JsonNode testValueNode = jsonNode.get("testValue");
+        assertThat(testValueNode.isTextual()).isTrue();
+        assertThat(testValueNode.textValue()).isEqualTo(NODE_TEST_ATTR_VALUE);
+    }
+
+    @Test
     public void shouldUseOutputMappingToAddJsonArrayValueToWorkflowPayload() throws Throwable
     {
         // given
@@ -845,6 +924,51 @@ public class WorkflowTaskIOMappingTest
         assertThat(arrayNode.get(1).intValue()).isEqualTo(1);
         assertThat(arrayNode.get(2).intValue()).isEqualTo(2);
         assertThat(arrayNode.get(3).intValue()).isEqualTo(3);
+    }
+
+    @Test
+    public void shouldUseOutputMappingToReplaceObjectFromJsonArrayToWorkflowPayload() throws Throwable
+    {
+        // given
+        final Map<String, Object> jsonObject = new HashMap<>();
+        jsonObject.put(NODE_TEST_ATTR_KEY, NODE_TEST_ATTR_VALUE);
+        final Object[] array = {jsonObject};
+
+        final Map<String, Object> rootObj = new HashMap<>();
+        rootObj.put(NODE_ARRAY_KEY, array);
+        rootObj.put(NODE_STRING_KEY, NODE_STRING_VALUE);
+        final byte[] bytes = objectMapper.writeValueAsBytes(rootObj);
+
+        testClient.deploy(wrap(
+            Bpmn.createExecutableProcess("process")
+                .startEvent()
+                .serviceTask("service")
+                .endEvent()
+                .done())
+            .taskDefinition("service", "external", 5)
+            .ioMapping("service")
+            .output(NODE_STRING_PATH, NODE_ARRAY_FIRST_IDX_PATH + "." + NODE_TEST_ATTR_KEY)
+            .done());
+        testClient.createWorkflowInstance("process", bytes);
+
+        // when
+        testClient.completeTaskOfType("external", bytes);
+        final SubscribedEvent activityCompletedEvent = testClient.receiveSingleEvent(workflowInstanceEvents("ACTIVITY_COMPLETED"));
+
+        // then payload contains old objects
+        final JsonNode jsonNode = objectMapper.readTree((byte[]) activityCompletedEvent.event().get(PROP_TASK_PAYLOAD));
+
+        final JsonNode testValueNode = jsonNode.get(NODE_STRING_KEY);
+        assertThat(testValueNode.isTextual()).isTrue();
+        assertThat(testValueNode.textValue()).isEqualTo(NODE_STRING_VALUE);
+
+        // and the new one
+        final JsonNode arrayNode = jsonNode.get(NODE_ARRAY_KEY);
+        assertThat(arrayNode.isArray()).isTrue();
+
+        final JsonNode arrayObjectNode = arrayNode.get(0);
+        assertThat(arrayObjectNode.isObject()).isTrue();
+        assertThat(arrayObjectNode.get(NODE_TEST_ATTR_KEY).textValue()).isEqualTo(NODE_STRING_VALUE);
     }
 
     @Test
