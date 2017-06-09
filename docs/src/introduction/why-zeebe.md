@@ -1,4 +1,4 @@
-# Why Zeebe? Carlo is not nice 
+# Why Zeebe? 
 
 There are many different worflow systems out there, why should you spend time learning about Zeebe?
 
