@@ -18,7 +18,7 @@ Zeebe applies publish-subscribe as an interaction model for orchestration. A ser
 
 ## Fault Tolerance redefined
 
-When processing critical business transactions, the systems availability and capability to prevent data loss are crucial. In the past, it was often adequate for workflow engines to store their state into databases which are regularly backed up and running on redundant server hardware. In the rare case of a hardware failure, a temporary downtime could be accommodated and the system could be manually restored. Today, requirements have changed. In the cloud, we do not own or control the hardware our systems run on. And the more machines the system runs on, the more likely hardware failures become and less desirable and practicable downtimes and manual restores become.
+When processing critical business transactions, the systems availability and capability to prevent data loss are crucial. In the past, it was often adequate for workflow engines to store their state into databases which are regularly backed up and running on redundant server hardware. In the rare case of hardware failure, temporary downtime could be accommodated and the system could be manually restored. Today, requirements have changed. In the cloud, we do not own or control the hardware our systems run on. And the more machines the system runs on, the more likely hardware failures become and less desirable and practicable downtimes and manual restores become.
 
 Zeebe replicates data across multiple machines to ensure availability and prevent data loss. If a machine fails or gets otherwise disconnected from the cluster, another machine which has a copy of the same data automatically takes over, ensuring that the system as a whole remains available without requiring manual action.
 
@@ -26,18 +26,18 @@ Zeebe replicates data across multiple machines to ensure availability and preven
 
 Running large distributed systems makes it impossible to administer each server manually. Over the years, new practices and approaches in operations have been established, mostly around resource abstraction, containers, container management and automation.
 
-Zeebe is designed with these practices in mind. First, it does not need a database nor any other external system to function. It is completely self-contained and self sufficient. Second, since all nodes in the cluster are equal, it is comparatively simple to scale. This makes it  play well together with modern datacenter and cloud management systems such as [Docker](https://www.docker.com/), [Kubernetes](https://kubernetes.io/) or [DC/OS](https://dcos.io/).
+Zeebe is designed with these practices in mind. Firstly, it does not require a database or any other external system to function. It is completely self-contained and self sufficient. Secondly, since all nodes in the cluster are equal, it is comparatively simple to scale. This makes it function well together with modern datacenter and cloud management systems such as [Docker](https://www.docker.com/), [Kubernetes](https://kubernetes.io/) or [DC/OS](https://dcos.io/).
 
-What's more, the CLI (Command Line Interface) allows you to script and automate management and operations tasks.
+Moreover, the CLI (Command Line Interface) allows you to script and automate management and operations tasks.
 
 ## The new Simple
 
-Most existing workflow systems provide many more features than Zeebe. While having many features at our disposition is generally positive, they also come at a cost. Having many features often results in higher complexity, causing poor performance and make the system hard to understand and use.
+Most existing workflow systems provide many more features than Zeebe. While having many features available to you is generally positive, they also come at a cost. Having many features often results in higher complexity, causing poorer performance and make the system challenging to understand and use.
 
-Zeebe focuses 100% on providing a small, robust and well scalable solution to workflow. Rather than covering a broad scope of features, it's goal is to be excellent within the limited scope it covers. In addition, it composes well with other systems. For example: Zeebe, provides a simple event stream API which makes it easy to stream all internal data into another system like elastic search for indexing and querying.
+Zeebe focuses 100% on providing a small, robust and scalable solution to workflows. Rather than covering a broad spectrum of features, its goal is to excel within the scope it covers. In addition, it melds well with other systems. For example: Zeebe, provides a simple event stream API which makes it easy to stream all internal data into another system like elastic search for indexing and querying.
 
 ## Zeebe may not be right for you
 
 Maybe your applications does not need the kind of scalability and fault tolerance provided by Zeebe. Or, you may require a large set of features around BPM (Business Process Management) which Zeebe does not offer.
 
-In such scenarios, a traditional workflow system such as [Camunda BPM](https://camunda.org) is a much better choice.
+In such scenarios, a traditional workflow system like [Camunda BPM](https://camunda.org) is a much better choice.
