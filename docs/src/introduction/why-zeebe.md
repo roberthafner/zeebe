@@ -34,10 +34,10 @@ Moreover, the CLI (Command Line Interface) allows you to script and automate man
 
 Most existing workflow systems provide many more features than Zeebe. While having many features available to you is generally positive, they also come at a cost. Having many features often results in higher complexity which causes poorer performance and makes the system challenging to understand and use.
 
-Zeebe focuses 100% on providing a small, robust and scalable solution to workflows. Rather than covering a broad spectrum of features, its goal is to excel within the scope it covers. In addition, it melds well with other systems. For example: Zeebe, provides a simple event stream API which makes it easy to stream all internal data into another system like elastic search for indexing and querying.
+Zeebe focuses 100% on providing a small, robust and scalable solution for workflows. Rather than covering a broad spectrum of features, its goal is to excel within the scope it covers. In addition, it melds well with other systems. For example: Zeebe, provides a simple event stream API which makes it easy to stream all internal data into another system like elastic search for indexing and querying.
 
 ## Zeebe may not be right for you
 
-Maybe your applications does not need the kind of scalability and fault tolerance provided by Zeebe. Or, you may require a large set of features around BPM (Business Process Management) which Zeebe does not offer.
+Maybe your applications do not need the kind of scalability and fault tolerance provided by Zeebe. Or, you may require a large set of features around BPM (Business Process Management) which Zeebe does not offer.
 
 In such scenarios, a traditional workflow system like [Camunda BPM](https://camunda.org) is a much better choice.
