@@ -32,7 +32,7 @@ Moreover, the CLI (Command Line Interface) allows you to script and automate man
 
 ## The new Simple
 
-Most existing workflow systems provide many more features than Zeebe. While having many features available to you is generally positive, they also come at a cost. Having many features often results in higher complexity, causing poorer performance and make the system challenging to understand and use.
+Most existing workflow systems provide many more features than Zeebe. While having many features available to you is generally positive, they also come at a cost. Having many features often results in higher complexity which causes poorer performance and makes the system challenging to understand and use.
 
 Zeebe focuses 100% on providing a small, robust and scalable solution to workflows. Rather than covering a broad spectrum of features, its goal is to excel within the scope it covers. In addition, it melds well with other systems. For example: Zeebe, provides a simple event stream API which makes it easy to stream all internal data into another system like elastic search for indexing and querying.
 
