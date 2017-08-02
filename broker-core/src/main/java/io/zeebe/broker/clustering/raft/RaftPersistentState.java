@@ -37,5 +37,15 @@ public class RaftPersistentState extends UnpackedObject
         declareProperty(membersProp);
     }
 
+    public int getTerm()
+    {
+        return termProp.getValue();
+    }
+
+    public void setTerm(final int term)
+    {
+        termProp.setValue(term);
+    }
+
 
 }
