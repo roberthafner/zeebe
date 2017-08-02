@@ -60,7 +60,7 @@ public class RaftService implements Service<Raft>
             logStream.openAsync().thenAccept(v -> {
                 final BufferingServerTransport serverTransport = serverTransportInjector.getValue();
                 final ClientTransport clientTransport = clientTransportInjector.getValue();
-                raft = new Raft(socketAddress, logStream, serverTransport, clientTransport);
+                raft = new Raft(socketAddress, logStream, serverTransport, clientTransport, new RaftPersistentFileStorage(logStream));
 
                 members.forEach(raft::addMember);
 
