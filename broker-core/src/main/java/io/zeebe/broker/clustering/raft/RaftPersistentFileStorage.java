@@ -31,17 +31,16 @@ import io.zeebe.util.LangUtil;
 import io.zeebe.util.StreamUtil;
 import io.zeebe.util.allocation.AllocatedBuffer;
 import io.zeebe.util.allocation.DirectBufferAllocator;
+import org.agrona.DirectBuffer;
 import org.agrona.MutableDirectBuffer;
 import org.agrona.concurrent.UnsafeBuffer;
 
 public class RaftPersistentFileStorage implements RaftPersistentStorage
 {
 
-    private final RaftPersistentState state = new RaftPersistentState();
+    private final RaftConfiguration configuration = new RaftConfiguration();
     private final DirectBufferAllocator allocator = new DirectBufferAllocator();
 
-    private final LogStream logStream;
-    private final SocketAddress votedFor = new SocketAddress();
 
     private final File file;
     private final File tmpFile;
@@ -54,12 +53,12 @@ public class RaftPersistentFileStorage implements RaftPersistentStorage
     private AllocatedBuffer allocatedReadBuffer;
     private final MutableDirectBuffer readBuffer = new UnsafeBuffer(0, 0);
 
+    private final SocketAddress votedFor = new SocketAddress();
+    private LogStream logStream;
 
 
-    public RaftPersistentFileStorage(final LogStream logStream, final String filename)
+    public RaftPersistentFileStorage(final String filename)
     {
-        this.logStream = logStream;
-
         file = new File(filename);
         tmpFile = new File(filename + ".tmp");
         path = Paths.get(filename);
@@ -75,13 +74,13 @@ public class RaftPersistentFileStorage implements RaftPersistentStorage
     }
 
     @Override
-    public void setTerm(final int term)
+    public RaftPersistentFileStorage setTerm(final int term)
     {
         logStream.setTerm(term);
 
-        state.setTerm(term);
+        configuration.setTerm(term);
 
-        save();
+        return this;
     }
 
     @Override
@@ -98,7 +97,7 @@ public class RaftPersistentFileStorage implements RaftPersistentStorage
     }
 
     @Override
-    public void setVotedFor(final SocketAddress votedFor)
+    public RaftPersistentFileStorage setVotedFor(final SocketAddress votedFor)
     {
         if (votedFor != null)
         {
@@ -109,10 +108,25 @@ public class RaftPersistentFileStorage implements RaftPersistentStorage
             this.votedFor.reset();
         }
 
-        save();
+        return this;
     }
 
-    protected void load()
+    @Override
+    public RaftPersistentFileStorage addMember(SocketAddress member)
+    {
+        configuration.addMember(member);
+
+        return this;
+    }
+
+    @Override
+    public void clearMembers()
+    {
+        // TODO: implement
+
+    }
+
+    public void load()
     {
         if (file.exists())
         {
@@ -131,20 +145,20 @@ public class RaftPersistentFileStorage implements RaftPersistentStorage
                 LangUtil.rethrowUnchecked(e);
             }
 
-            state.wrap(readBuffer);
+            configuration.wrap(readBuffer);
         }
     }
 
-    protected void save()
+    public void save()
     {
-        final int length = state.getEncodedLength();
+        final int length = configuration.getEncodedLength();
 
         if (length > writeBuffer.capacity())
         {
             allocateWriteBuffer(length);
         }
 
-        state.write(writeBuffer, 0);
+        configuration.write(writeBuffer, 0);
 
         try (OutputStream os = new FileOutputStream(tmpFile))
         {
@@ -189,4 +203,35 @@ public class RaftPersistentFileStorage implements RaftPersistentStorage
         readBuffer.wrap(allocatedReadBuffer.getRawBuffer());
     }
 
+    public DirectBuffer getTopicName()
+    {
+        return configuration.getTopicName();
+    }
+
+    public int getPartitionId()
+    {
+        return configuration.getPartitionId();
+    }
+
+    public String getLogDirectory()
+    {
+        return configuration.getLogDirectory();
+    }
+
+    public RaftPersistentFileStorage setLogStream(final LogStream logStream)
+    {
+        this.logStream = logStream;
+
+        configuration.setTopicName(logStream.getTopicName());
+        configuration.setPartitionId(logStream.getPartitionId());
+
+        return this;
+    }
+
+    public RaftPersistentFileStorage setLogDirectory(String logDirectory)
+    {
+        configuration.setLogDirectory(logDirectory);
+
+        return this;
+    }
 }
